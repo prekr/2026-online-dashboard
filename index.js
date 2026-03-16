@@ -472,58 +472,6 @@ function updateCharts(computed) {
     cumulativeChart.update();
 }
 
-// Add Item Modal Logic
-document.getElementById('add-item-btn').addEventListener('click', () => {
-    document.getElementById('add-item-modal').classList.add('active');
-    document.getElementById('new-item-name').focus();
-});
-
-document.getElementById('cancel-add-btn').addEventListener('click', () => {
-    document.getElementById('add-item-modal').classList.remove('active');
-    document.getElementById('new-item-name').value = '';
-});
-
-document.getElementById('confirm-add-btn').addEventListener('click', () => {
-    const input = document.getElementById('new-item-name');
-    const name = input.value.trim();
-    if (name && !items.includes(name)) {
-        items.push(name);
-        activeItems.add(name);
-        data.goals[name] = Array(12).fill(0);
-        data.actuals[name] = Array(12).fill(0);
-        saveToLocalStorage();
-        renderFilterCheckboxes();
-        renderTable();
-        document.getElementById('add-item-modal').classList.remove('active');
-        input.value = '';
-    } else if (items.includes(name)) {
-        alert('이미 존재하는 항목입니다.');
-    }
-});
-
-// Excel Upload Logic
-document.getElementById('upload-btn').addEventListener('click', () => {
-    document.getElementById('excel-upload').click();
-});
-
-document.getElementById('excel-upload').addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        let isSuccess = processExcelArrayBuffer(e.target.result);
-        if (isSuccess) {
-            saveToLocalStorage();
-            renderTable();
-        } else {
-            alert('업로드한 엑셀 파일 형식을 확인해주세요. (1열: 구분, 각 행마다 항목의 목표/실적)');
-        }
-    };
-    reader.readAsArrayBuffer(file);
-    e.target.value = ''; // Reset input to allow re-upload
-});
-
 function processExcelArrayBuffer(arrayBuffer) {
     const fileData = new Uint8Array(arrayBuffer);
     const workbook = XLSX.read(fileData, {type: 'array'});
@@ -532,6 +480,22 @@ function processExcelArrayBuffer(arrayBuffer) {
     const worksheet = workbook.Sheets[firstSheetName];
     
     const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+
+    const parseExcelNumber = (val) => {
+        if (val === undefined || val === null) return 0;
+        let str = String(val).trim();
+        if (str === '-' || str === '') return 0;
+        
+        // Check for negative signs or accounting parentheses e.g., (22,000)
+        let isNegative = str.includes('-') || (str.startsWith('(') && str.endsWith(')'));
+        
+        // Remove everything except digits and decimals
+        let cleaned = str.replace(/[^0-9.]/g, '');
+        if (!cleaned) return 0;
+        
+        let num = Number(cleaned);
+        return isNegative ? Math.round(-num) : Math.round(num);
+    };
     
     if (json.length > 1) {
         let tempItems = [];
@@ -551,14 +515,14 @@ function processExcelArrayBuffer(arrayBuffer) {
                 if (!tempItems.includes(itemName)) { tempItems.push(itemName); }
                 if (!tempGoals[itemName]) { tempGoals[itemName] = Array(12).fill(0); }
                 for (let i = 1; i <= 12; i++) {
-                    tempGoals[itemName][i-1] = Math.round(Number(row[i])) || 0;
+                    tempGoals[itemName][i-1] = parseExcelNumber(row[i]);
                 }
             } else if (rowLabel.includes('실적')) {
                 let itemName = rowLabel.replace('실적', '').trim();
                 if (!tempItems.includes(itemName)) { tempItems.push(itemName); }
                 if (!tempActuals[itemName]) { tempActuals[itemName] = Array(12).fill(0); }
                 for (let i = 1; i <= 12; i++) {
-                    tempActuals[itemName][i-1] = Math.round(Number(row[i])) || 0;
+                    tempActuals[itemName][i-1] = parseExcelNumber(row[i]);
                 }
             }
         }
@@ -591,10 +555,14 @@ document.querySelectorAll('.unit-btn').forEach(btn => {
 });
 
 async function loadDataFromExcelFile() {
+    if (window.location.protocol === 'file:') {
+        alert("⚠️ [안내] PC에서 직접 실행(file://)하셨기 때문에 브라우저 보안 정책상 엑셀 파일을 읽을 수 없습니다.\n\n엑셀을 연동하시려면 수정한 엑셀 파일을 GitHub에 올리신 후 GitHub 주소로 접속하셔야 정상 작동합니다!");
+    }
+
     try {
         const response = await fetch('./2026_dashboard.xlsx', { cache: 'no-store' });
         if (!response.ok) {
-            console.log('2026_dashboard.xlsx 파일을 찾을 수 없습니다. 기존 저장된 데이터 또는 데모 데이터를 불러옵니다.');
+            console.log('2026_dashboard.xlsx 파일을 찾을 수 없습니다.');
             loadFromLocalStorage();
             return;
         }
