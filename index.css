@@ -241,6 +241,54 @@ h1 {
     box-shadow: 0 2px 8px var(--accent-glow);
 }
 
+.yoy-btn {
+    background: transparent;
+    border: 1px solid rgba(251, 146, 60, 0.5);
+    color: #fb923c;
+    padding: 0.4rem 1rem;
+    font-family: inherit;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.yoy-btn:hover {
+    background: rgba(251, 146, 60, 0.1);
+}
+
+.yoy-btn.active {
+    background: rgba(251, 146, 60, 0.2);
+    border-color: #fb923c;
+    box-shadow: 0 2px 8px rgba(251, 146, 60, 0.3);
+}
+
+.prev-row {
+    background: rgba(251, 146, 60, 0.04);
+}
+
+.prev-row-label {
+    color: #fb923c !important;
+    font-size: 0.75rem;
+}
+
+.prev-row-cell {
+    color: #fb923c;
+    font-size: 0.78rem;
+}
+
+.growth-row {
+    background: rgba(0, 0, 0, 0.18);
+    border-bottom: 1px dashed rgba(255,255,255,0.08);
+}
+
+.growth-row-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary) !important;
+}
+
 .data-header h2 {
     font-size: 1.1rem;
     color: var(--text-secondary);

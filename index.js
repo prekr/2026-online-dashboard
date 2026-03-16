@@ -13,8 +13,15 @@ let data = {
         '예스24': Array(12).fill(0),
         '알라딘': Array(12).fill(0),
         '쿠팡': Array(12).fill(0)
+    },
+    prevActuals: {
+        '예스24': Array(12).fill(0),
+        '알라딘': Array(12).fill(0),
+        '쿠팡': Array(12).fill(0)
     }
 };
+
+let showYoy = false;
 
 // LocalStorage Integration
 function saveToLocalStorage() {
@@ -29,6 +36,8 @@ function loadFromLocalStorage() {
     if (savedItems && savedData) {
         items = JSON.parse(savedItems);
         data = JSON.parse(savedData);
+        if (!data.prevActuals) data.prevActuals = {};
+        items.forEach(item => { if (!data.prevActuals[item]) data.prevActuals[item] = Array(12).fill(0); });
         activeItems = new Set(items);
     } else {
         // Fallback to demo data
@@ -80,32 +89,42 @@ function getComputedData() {
     const cumulativeGoals = Array(12).fill(0);
     const cumulativeTotals = Array(12).fill(0);
     const cumulativeRates = Array(12).fill(0);
+    const monthlyPrevTotal = Array(12).fill(0);
 
     const itemAnnualGoals = {};
     const itemAnnualActuals = {};
+    const itemAnnualPrevActuals = {};
+    const itemGrowthRates = {};
 
     activeItems.forEach(item => {
         itemAnnualGoals[item] = 0;
         itemAnnualActuals[item] = 0;
+        itemAnnualPrevActuals[item] = 0;
     });
 
     let runGoal = 0;
     let runTotal = 0;
+    let runPrev = 0;
 
     for (let i = 0; i < 12; i++) {
         // Calculate monthly total
         let actual = 0;
         let goal = 0;
+        let prev = 0;
         activeItems.forEach(item => {
             let a = Math.round(Number(data.actuals[item]?.[i] || 0));
             let g = Math.round(Number(data.goals[item]?.[i] || 0));
+            let p = Math.round(Number(data.prevActuals[item]?.[i] || 0));
             itemAnnualActuals[item] += a;
             itemAnnualGoals[item] += g;
+            itemAnnualPrevActuals[item] += p;
             actual += a;
             goal += g;
+            prev += p;
         });
         monthlyTotal[i] = actual;
         monthlyTotalGoals[i] = goal;
+        monthlyPrevTotal[i] = prev;
 
         // Calculate achievement rate
         achievementRates[i] = goal > 0 ? (actual / goal) * 100 : 0;
@@ -113,10 +132,19 @@ function getComputedData() {
         // Cumulative
         runGoal += goal;
         runTotal += actual;
+        runPrev += prev;
         cumulativeGoals[i] = runGoal;
         cumulativeTotals[i] = runTotal;
         cumulativeRates[i] = runGoal > 0 ? (runTotal / runGoal) * 100 : 0;
     }
+
+    // Annual growth rates per item
+    activeItems.forEach(item => {
+        const p = itemAnnualPrevActuals[item];
+        itemGrowthRates[item] = p > 0 ? ((itemAnnualActuals[item] - p) / p) * 100 : null;
+    });
+    const totalAnnualPrevActual = runPrev;
+    const totalAnnualGrowthRate = totalAnnualPrevActual > 0 ? ((runTotal - totalAnnualPrevActual) / totalAnnualPrevActual) * 100 : null;
 
     const totalAnnualGoal = runGoal;
     const totalAnnualActual = runTotal;
@@ -125,14 +153,19 @@ function getComputedData() {
     return {
         monthlyTotalGoals,
         monthlyTotal,
+        monthlyPrevTotal,
         achievementRates,
         cumulativeGoals,
         cumulativeTotals,
         cumulativeRates,
         itemAnnualGoals,
         itemAnnualActuals,
+        itemAnnualPrevActuals,
+        itemGrowthRates,
         totalAnnualGoal,
         totalAnnualActual,
+        totalAnnualPrevActual,
+        totalAnnualGrowthRate,
         totalAnnualRate
     };
 }
@@ -161,8 +194,9 @@ function renderTable() {
     tbody.innerHTML = '';
 
     // Items Row (Goals and Actuals for each item)
+    const rowspan = showYoy ? 4 : 2;
     activeItems.forEach(item => {
-        let goalHtml = `<td class="fixed-col" rowspan="2">${item}</td>`;
+        let goalHtml = `<td class="fixed-col" rowspan="${rowspan}">${item}</td>`;
         goalHtml += `<td class="fixed-col-sub">목표</td>`;
         for (let i = 0; i < 12; i++) {
             let val = data.goals[item]?.[i] || 0;
@@ -184,6 +218,40 @@ function renderTable() {
         itemRow.className = 'actual-row';
         itemRow.innerHTML = itemHtml;
         tbody.appendChild(itemRow);
+
+        if (showYoy) {
+            // Previous year row
+            let prevHtml = `<td class="fixed-col-sub prev-row-label">전년실적</td>`;
+            for (let i = 0; i < 12; i++) {
+                let val = data.prevActuals[item]?.[i] || 0;
+                prevHtml += `<td class="prev-row-cell">${formatDisplayValue(val)}</td>`;
+            }
+            const prevAnnual = computed.itemAnnualPrevActuals[item];
+            prevHtml += `<td class="total-col prev-row-cell" style="font-weight:600">${formatDisplayValue(prevAnnual)}</td>`;
+            const prevRow = document.createElement('tr');
+            prevRow.className = 'prev-row';
+            prevRow.innerHTML = prevHtml;
+            tbody.appendChild(prevRow);
+
+            // Growth rate row
+            let growthHtml = `<td class="fixed-col-sub growth-row-label">증감(%)</td>`;
+            for (let i = 0; i < 12; i++) {
+                const cur = data.actuals[item]?.[i] || 0;
+                const pre = data.prevActuals[item]?.[i] || 0;
+                const rate = pre > 0 ? ((cur - pre) / pre * 100) : null;
+                const display = rate === null ? '-' : (rate >= 0 ? '+' : '') + rate.toFixed(1) + '%';
+                const color = rate === null ? 'var(--text-secondary)' : rate >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)';
+                growthHtml += `<td style="color:${color}; font-weight:600">${display}</td>`;
+            }
+            const gr = computed.itemGrowthRates[item];
+            const grDisplay = gr === null ? '-' : (gr >= 0 ? '+' : '') + gr.toFixed(1) + '%';
+            const grColor = gr === null ? 'var(--text-secondary)' : gr >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)';
+            growthHtml += `<td class="total-col" style="color:${grColor}; font-weight:600">${grDisplay}</td>`;
+            const growthRow = document.createElement('tr');
+            growthRow.className = 'growth-row';
+            growthRow.innerHTML = growthHtml;
+            tbody.appendChild(growthRow);
+        }
     });
 
     // Mark last item's fixed-col and actual-row for thick bottom border
@@ -405,6 +473,23 @@ function updateCharts(computed) {
         order: 1
     });
 
+    if (showYoy) {
+        monthlyDatasets.push({
+            label: '전년 실적 (합계)',
+            data: computed.monthlyPrevTotal,
+            type: 'line',
+            borderColor: '#fb923c',
+            backgroundColor: 'rgba(251,146,60,0.15)',
+            borderWidth: 2,
+            borderDash: [6, 3],
+            pointBackgroundColor: '#fb923c',
+            yAxisID: 'y',
+            tension: 0.4,
+            fill: false,
+            order: 0
+        });
+    }
+
     monthlyChart.data.datasets = monthlyDatasets;
     monthlyChart.update();
 
@@ -473,6 +558,7 @@ function processExcelArrayBuffer(arrayBuffer) {
         let tempItems = [];
         let tempGoals = {};
         let tempActuals = {};
+        let tempPrevActuals = {};
 
         for (let r = 1; r < json.length; r++) {
             const row = json[r];
@@ -482,7 +568,15 @@ function processExcelArrayBuffer(arrayBuffer) {
             
             if (rowLabel.includes('총 실적') || rowLabel.includes('Total') || rowLabel.includes('달성율') || rowLabel.includes('%')) continue;
 
-            if (rowLabel.includes('목표')) {
+            if (rowLabel.includes('전년실적') || rowLabel.includes('전년 실적')) {
+                // Previous year actuals
+                let itemName = rowLabel.replace('전년실적', '').replace('전년 실적', '').trim();
+                if (!tempItems.includes(itemName)) { tempItems.push(itemName); }
+                if (!tempPrevActuals[itemName]) { tempPrevActuals[itemName] = Array(12).fill(0); }
+                for (let i = 1; i <= 12; i++) {
+                    tempPrevActuals[itemName][i-1] = parseExcelNumber(row[i]);
+                }
+            } else if (rowLabel.includes('목표')) {
                 let itemName = rowLabel.replace('목표', '').trim();
                 if (!tempItems.includes(itemName)) { tempItems.push(itemName); }
                 if (!tempGoals[itemName]) { tempGoals[itemName] = Array(12).fill(0); }
@@ -503,6 +597,7 @@ function processExcelArrayBuffer(arrayBuffer) {
             tempItems.forEach(item => {
                 if (!tempGoals[item]) tempGoals[item] = Array(12).fill(0);
                 if (!tempActuals[item]) tempActuals[item] = Array(12).fill(0);
+                if (!tempPrevActuals[item]) tempPrevActuals[item] = Array(12).fill(0);
             });
 
             items = [];
@@ -510,6 +605,7 @@ function processExcelArrayBuffer(arrayBuffer) {
             activeItems = new Set(items);
             data.goals = tempGoals;
             data.actuals = tempActuals;
+            data.prevActuals = tempPrevActuals;
             return true;
         }
     }
@@ -526,32 +622,95 @@ document.querySelectorAll('.unit-btn').forEach(btn => {
     });
 });
 
+// YoY Toggle Logic
+const yoyBtn = document.getElementById('yoy-toggle-btn');
+if (yoyBtn) {
+    yoyBtn.addEventListener('click', () => {
+        showYoy = !showYoy;
+        yoyBtn.classList.toggle('active', showYoy);
+        yoyBtn.textContent = showYoy ? '\ud83d\udcca \uc804\ub144\ub300\ube44 ON' : '\ud83d\udcca \uc804\ub144\ub300\ube44';
+        renderTable();
+    });
+}
+
 async function loadDataFromExcelFile() {
     if (window.location.protocol === 'file:') {
         alert("⚠️ [안내] PC에서 직접 실행(file://)하셨기 때문에 브라우저 보안 정책상 엑셀 파일을 읽을 수 없습니다.\n\n엑셀을 연동하시려면 수정한 엑셀 파일을 GitHub에 올리신 후 GitHub 주소로 접속하셔야 정상 작동합니다!");
     }
 
     try {
-        const response = await fetch('./2026_dashboard.xlsx', { cache: 'no-store' });
-        if (!response.ok) {
-            console.log('2026_dashboard.xlsx 파일을 찾을 수 없습니다.');
-            loadFromLocalStorage();
-            return;
-        }
-        
-        const arrayBuffer = await response.arrayBuffer();
-        let isSuccess = processExcelArrayBuffer(arrayBuffer);
-        
-        if (isSuccess) {
-            console.log('2026_dashboard.xlsx 파일에서 데이터를 성공적으로 불러왔습니다.');
-            saveToLocalStorage();
+        // Load current year data (2026)
+        const response2026 = await fetch('./2026_dashboard.xlsx', { cache: 'no-store' });
+        if (response2026.ok) {
+            const arrayBuffer = await response2026.arrayBuffer();
+            let isSuccess = processExcelArrayBuffer(arrayBuffer);
+            if (isSuccess) {
+                console.log('2026_dashboard.xlsx 파일 로드 성공');
+            }
         } else {
-            console.warn('엑셀 파싱 실패. 기존 데이터를 불러옵니다.');
+            console.log('2026_dashboard.xlsx 파일을 찾을 수 없어 로컬 데이터를 사용합니다.');
             loadFromLocalStorage();
         }
+
+        // Load prev year data (2025)
+        await loadPrevYearDataFromExcel();
+
+        saveToLocalStorage();
     } catch (error) {
         console.error('엑셀 파일 불러오기 중 에러 발생:', error);
         loadFromLocalStorage();
+    }
+}
+
+async function loadPrevYearDataFromExcel() {
+    try {
+        const response2025 = await fetch('./2025_dashboard.xlsx', { cache: 'no-store' });
+        if (!response2025.ok) {
+            console.log('2025_dashboard.xlsx 파일을 찾을 수 없습니다.');
+            return;
+        }
+
+        const arrayBuffer = await response2025.arrayBuffer();
+        const fileData = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(fileData, { type: 'array' });
+        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        // Helper to parse numbers from Excel accounting format
+        const parseExcelNumber = (val) => {
+            if (val === undefined || val === null) return 0;
+            let str = String(val).trim();
+            if (str === '-' || str === '') return 0;
+            let isNegative = str.includes('-') || (str.startsWith('(') && str.endsWith(')'));
+            let cleaned = str.replace(/[^0-9.]/g, '');
+            if (!cleaned) return 0;
+            let num = Number(cleaned);
+            return isNegative ? Math.round(-num) : Math.round(num);
+        };
+
+        // Layout mapping based on user request:
+        // B2~M2 (Index 1, Col 1..12): 예스24
+        // B3~M3 (Index 2, Col 1..12): 알라딘
+        // B4~M4 (Index 3, Col 1..12): 쿠팡
+        const mapping = {
+            '예스24': 1,
+            '알라딘': 2,
+            '쿠팡': 3
+        };
+
+        Object.keys(mapping).forEach(itemName => {
+            const rowIndex = mapping[itemName];
+            if (json[rowIndex]) {
+                if (!data.prevActuals[itemName]) data.prevActuals[itemName] = Array(12).fill(0);
+                for (let i = 1; i <= 12; i++) {
+                    data.prevActuals[itemName][i - 1] = parseExcelNumber(json[rowIndex][i]);
+                }
+            }
+        });
+
+        console.log('2025_dashboard.xlsx (전년 데이터) 로드 성공');
+    } catch (e) {
+        console.warn('2025_dashboard.xlsx 로드 중 오류:', e);
     }
 }
 
